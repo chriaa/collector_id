@@ -5,8 +5,9 @@ import os
 
 load_dotenv()
 
+
 class DBAccess:
-    def __init__(self, host, database, user, password):
+    def __init__(self):
         """
         Initialize database connection details from environment variables.
         """
@@ -41,18 +42,35 @@ class DBAccess:
             return []
 
         query = """
-        SELECT FirstName, LastName, MiddleInitial
-        FROM collectors
+ SELECT
+    #CONCAT(a.FirstName, ' ', COALESCE(a.MiddleInitial, ''), ' ', a.LastName) AS FullName,
+    a.FirstName as FirstName,
+    a.MiddleInitial as MiddleInitial,
+    a.LastName as LastName,
+    a.Title,
+    a.AgentID
+FROM
+    casbotany.agent a
+LEFT JOIN
+    casbotany.collector col ON a.AgentID = col.AgentID
+WHERE
+     a.FirstName IS NOT NULL AND TRIM(a.FirstName) <> ''
+GROUP BY
+    a.FirstName,
+    a.MiddleInitial,
+    a.LastName,
+    a.Title,
+    a.AgentID
+LIMIT 125;
+
+
         """
         cursor = self.connection.cursor()
         try:
             cursor.execute(query)
             records = cursor.fetchall()
             names = []
-            for row in records:
-                names.append(f"{row[0].strip()},{row[2].strip()},{row[1].strip()}")
-
-            return names
+            return records
         except Error as e:
             print(f"Failed to fetch collectors: {e}")
             return []
@@ -66,5 +84,3 @@ class DBAccess:
         if self.connection and self.connection.is_connected():
             self.connection.close()
             print("MySQL connection is closed.")
-
-

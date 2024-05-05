@@ -1,2 +1,3 @@
-import OrcidAPI
-import OpenAlexAPI
+# __init__.py
+from .OrcidAPI import OrcidAPI
+from .OpenAlexAPI import OpenAlexAPI

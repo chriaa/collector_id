@@ -1,1 +1,1 @@
-import DBAccess
+from .DBAccess import DBAccess
