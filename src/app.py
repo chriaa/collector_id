@@ -8,10 +8,10 @@ from api.OpenAlexAPI import OpenAlexAPI
 from database.DBAccess import DBAccess
 from utils.CleanData import CleanData, process_search_name_data, clean_name, test_name_filtering, instantiate_error_log
 from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence
-from utils.CleanDataPySpark import extract_search_result
 from dotenv import load_dotenv
 
 import pandas as pd
+
 
 # Load the environment variables from .env file
 load_dotenv()
@@ -45,14 +45,11 @@ def main():
         # readapt clean_name function to:
         # extract the number of individual names (for example there is an and)
         # and to search if there is a nickname associate with a name
-
+        print(name)
         first_name, middle_name, last_name = clean_name(name[:3])
-
-        first_name = first_name.replace("&", "and") #need to do this so punctuation doesnt drop it
-
+        print("this is the cleaned_name ", first_name, middle_name, last_name)
+        first_name = first_name.replace("&", "and")
         cleaned_name = f"{first_name} {middle_name} {last_name}"
-
-
         new_first_name, new_middle_name, new_last_name = test_name_filtering(first_name, middle_name, last_name, name)
 
         if new_first_name and new_middle_name and new_last_name:
@@ -62,11 +59,10 @@ def main():
                                                                                                               filtered_name=filtered_name))
         else:
             print("original_name: {name}, cleaned_name: {cleaned_name}".format(name=name, cleaned_name=cleaned_name))
-
     print(len(names_to_search))
+    '''
 
 
-'''
         # Authenticate Orcid API using Credentials
         orcid_api = OrcidAPI()
         # alex_api = OpenAlexAPI()
@@ -75,18 +71,12 @@ def main():
         # Exchange the authorization code for an access token
         code = 'd7457049-e29d-4604-9669-b61a288dfd50'
         # access_token = orcid_api.exchange_code_for_token(code, redirect_uri)
-
+        
         orcid_matches = orcid_api.search_orcid(cleaned_name, code)
-
+       
         # Process the matches if there are any, and proceed only if the processed data is not empty
         if orcid_matches and 'expanded-result' in orcid_matches and orcid_matches['expanded-result']:
-
             processed_matches = process_search_name_data(orcid_matches, cleaned_name)
-
-
-            print("these were processed normally: ", processed_matches)
-
-
             if processed_matches:  # Check if there are any processed matches to avoid creating an empty DataFrame
                 df = pd.DataFrame(processed_matches)
                 # df['full_name'] = df.apply(lambda x: f"{x['Given Names']} {x['Family Names']}".strip(), axis=1)
@@ -105,6 +95,10 @@ def main():
         else:
             print("No results found from ORCID search or no valid data to process.")
 
+
+        '''
+
+    '''
     # Save rows that will be dropped due to NaN values in specified columns
     rows_to_drop = df[df[['Best Match Column', 'Best Match Name', 'Confidence Score']].isna().any(axis=1)]
 
@@ -118,7 +112,9 @@ def main():
     # Output the cleaned DataFrame
     print("\nCleaned DataFrame:")
     print(df)
-'''
+
+    '''
+
 
 if __name__ == "__main__":
     main()
