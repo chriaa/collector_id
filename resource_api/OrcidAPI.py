@@ -3,10 +3,12 @@ import requests
 from dotenv import load_dotenv
 import os
 
+from utils.CleanData import test_process_search_name_data
 
 # Accessing variables
 client_id = os.getenv('CLIENT_ID')
 client_secret = os.getenv('CLIENT_SECRET')
+access_token = os.getenv('ACCESS_TOKEN')
 
 
 class OrcidAPI:
@@ -15,6 +17,8 @@ class OrcidAPI:
         self.base_url = "https://api.orcid.org"
         self.client_id = client_id
         self.client_secret = client_secret
+        self.access_token = access_token
+
     # Function to get an access token using client credentials
     def get_access_token(self):
         token_url = "https://orcid.org/oauth/token"
@@ -31,6 +35,7 @@ class OrcidAPI:
         else:
             print(f"Error obtaining access token: {response.text}")
             return None
+
     # Function to build authorization URL (Manual step for user)
     def get_authorization_url(self, redirect_uri):
         base_url = "https://orcid.org/oauth/authorize"
@@ -59,8 +64,6 @@ class OrcidAPI:
             print(f"Error obtaining access token: {response.text}")
             return None
 
-
-
     # Modified search function to use the access token
     def search_orcid(self, name, access_token):
         url = f"https://pub.orcid.org/v3.0/expanded-search?q={name}&start=4&rows=6"
@@ -75,3 +78,40 @@ class OrcidAPI:
         else:
             print(f"Error during search: {response.text}")
             return None
+
+    def test_search_orcid(self, name):
+        url = f"https://pub.orcid.org/v3.0/expanded-search?q={name}&start=4&rows=6"
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {access_token}',
+
+        }
+        response = ""
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"HTTP error occurred: {err} - {response.text}")
+        except Exception as err:
+            print(f"Other error occurred: {err}")
+        return None
+
+
+def partition_search(instance, names):
+    url = (f"https://pub.orcid.org/v3")
+    results = []
+    for name in names:
+        full_name = f"{name['first_name']} {name['last_name']}"
+        if name['middle_name'] and len(name['middle_name']) > 0:
+            full_name = f"{name['first_name']} {name['middle_name']} {name['last_name']}"
+
+        search_results = instance.test_search_orcid(full_name)
+        search_results['searched_name_row'] = name
+        search_results['searched_name'] = full_name
+        #compiled_results = test_process_search_name_data(search_results)
+
+        #print("compiled results", compiled_results)
+        results.append(search_results if search_results is not None else 0)
+
+    return iter(results)

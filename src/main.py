@@ -1,16 +1,23 @@
 import logging
+import os
 import sys
+from pathlib import Path
 
-sys.path.append('../')  # Adjust the path as necessary
+from pyspark import rdd
 
-from api.OrcidAPI import OrcidAPI
-from api.OpenAlexAPI import OpenAlexAPI
+#sys.path.append('../')  # Adjust the path as necessary
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from resource_api.OrcidAPI import OrcidAPI, partition_search
+from resource_api.OpenAlexAPI import OpenAlexAPI
 from database.DBAccess import DBAccess
-from utils.CleanData import CleanData, process_search_name_data, clean_name, test_name_filtering, instantiate_error_log
+from utils.CleanData import (CleanData, process_search_name_data, clean_name, test_name_filtering, instantiate_error_log,
+                             filter_titles_pyspark, filter_multiple_collectors, filter_institutions, test_process_search_name_iterator)
 from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence
-from utils.CleanDataPySpark import extract_search_result
 from dotenv import load_dotenv
 
+
+from pyspark.sql import SparkSession
 import pandas as pd
 
 # Load the environment variables from .env file
@@ -38,13 +45,67 @@ def main():
     df = pd.DataFrame()
 
     # Get the names of collectors from the database
-    names_to_search = db.fetch_collectors()
+    names_to_search = db.fetch_collectors() #returns a list of tuples
+
+
+
+    ########
+   # test_names_to_search = list(zip(*names_to_search))
+    test_names_to_search = names_to_search
+    columns = ['first_name', 'middle_name', 'last_name', 'title', 'agend_id']
+
+    spark = SparkSession.builder.appName("CollectorNamePreprocessing").getOrCreate()
+   # spark.sparkContext.setLogLevel("DEBUG")
+    test_df = spark.createDataFrame(test_names_to_search, schema=columns)
+    test_df.show()
+    #spark.stop()
+
+    names_df, names_with_titles_df = filter_titles_pyspark(test_df)
+
+    # log
+
+    names_df, multiple_names_df = filter_multiple_collectors(names_df)
+
+    #log
+
+    names_df, organizations_df = filter_institutions(names_df)
+
+    #log
+
+
+
+    #end of data processing
+
+    #########
+
+    spark.sparkContext.addPyFile('./resource_api.zip')
+    import resource_api
+
+    def search_wrapper(orcid_search = OrcidAPI()):
+        def partition_search_function(names_df):
+            return partition_search(orcid_search, names_df)
+        return partition_search_function
+
+
+
+    search_function = search_wrapper()
+
+    #   Output Names
+
+    rdd = names_df.rdd.mapPartitions(search_function)
+    #orcid_search_results = rdd.collect()
+    #print("these are the results: ", orcid_search_results)
+    extracted_names_rdd = rdd.mapPartitions(test_process_search_name_iterator)
+
+    #   output current search results
+    print("these are the extracted names")
+    print(extracted_names_rdd.collect())
+
+    #   Fuzzy Matching
+
+    '''
 
     for name in names_to_search:
-
-        # readapt clean_name function to:
-        # extract the number of individual names (for example there is an and)
-        # and to search if there is a nickname associate with a name
 
         first_name, middle_name, last_name = clean_name(name[:3])
 
@@ -64,16 +125,18 @@ def main():
             print("original_name: {name}, cleaned_name: {cleaned_name}".format(name=name, cleaned_name=cleaned_name))
 
     print(len(names_to_search))
+    '''
 
+    '''
+    for name in names_to_search:
 
-'''
         # Authenticate Orcid API using Credentials
         orcid_api = OrcidAPI()
         # alex_api = OpenAlexAPI()
 
         redirect_uri = 'https://127.0.0.1/'
         # Exchange the authorization code for an access token
-        code = 'd7457049-e29d-4604-9669-b61a288dfd50'
+        code = os.getenv('ACCESS_TOKEN')
         # access_token = orcid_api.exchange_code_for_token(code, redirect_uri)
 
         orcid_matches = orcid_api.search_orcid(cleaned_name, code)
@@ -118,7 +181,7 @@ def main():
     # Output the cleaned DataFrame
     print("\nCleaned DataFrame:")
     print(df)
-'''
+    '''
 
 if __name__ == "__main__":
     main()

@@ -30,7 +30,7 @@ class DBAccess:
             if self.connection.is_connected():
                 print("MySQL database connection successful.")
         except Error as e:
-            print(f"Error connecting to MySQL database: {e}")
+            print(f"Errorjkkm, connecting to MySQL database: {e}")
             self.connection = None
 
     def fetch_collectors(self):
@@ -61,7 +61,7 @@ GROUP BY
     a.LastName,
     a.Title,
     a.AgentID
-LIMIT 125;
+LIMIT 20;
 
 
         """

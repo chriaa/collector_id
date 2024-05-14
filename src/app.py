@@ -3,8 +3,8 @@ import sys
 
 sys.path.append('../')  # Adjust the path as necessary
 
-from api.OrcidAPI import OrcidAPI
-from api.OpenAlexAPI import OpenAlexAPI
+from resource_api.OrcidAPI import OrcidAPI
+from resource_api.OpenAlexAPI import OpenAlexAPI
 from database.DBAccess import DBAccess
 from utils.CleanData import CleanData, process_search_name_data, clean_name, test_name_filtering, instantiate_error_log
 from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence
