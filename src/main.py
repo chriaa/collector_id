@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import datetime
 from pathlib import Path
 
 from pyspark import rdd
@@ -11,9 +12,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from resource_api.OrcidAPI import OrcidAPI, partition_search
 from resource_api.OpenAlexAPI import OpenAlexAPI
 from database.DBAccess import DBAccess
-from utils.CleanData import (CleanData, process_search_name_data, clean_name, test_name_filtering, instantiate_error_log,
-                             filter_titles_pyspark, filter_multiple_collectors, filter_institutions, test_process_search_name_iterator)
-from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence
+from utils.CleanData import (CleanData, process_search_name_data, instantiate_error_log, filter_titles, filter_multiple_collectors, filter_institutions, process_search_name_iterator)
+from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence, get_best_match_iterator
 from dotenv import load_dotenv
 
 
@@ -27,161 +27,114 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def initialize_application():
-    try:
-        db = DBAccess()
-        db.connect()
-        logger.info("Successfully connected to the database.")
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during database initialization: {e}")
-        return None
-    return db
+
+date_time = datetime.datetime.now()
+
+def output_file_rdd(spark, file_name, rdd):
+    if not rdd.isEmpty():
+        df = spark.createDataFrame(rdd)
+        #df.write.csv(path = f"./{file_name}.csv", mode = 'overwrite', header= True)
+        df.coalesce(1).write.csv(path=f"./outputs/{file_name}_{date_time}.csv", mode='overwrite', header=True)
+
+def output_file_df(spark, file_name, df):
+    df.coalesce(1).write.csv(path=f"./outputs/{file_name}_{date_time}.csv", mode='overwrite', header=True)
 
 
-def main():
-    instantiate_error_log('dropped_agents.csv')
-    # Connect to database
-    db = initialize_application()
-    df = pd.DataFrame()
+def initialize_database(db_type):
+    if db_type == "source":
+        try:
+            db = DBAccess(os.getenv('DB_HOST'), os.getenv('DB_DATABASE'), os.getenv('DB_USER'), os.getenv('DB_PASSWORD'))
+            db.connect()
+            logger.info("Successfully connected to the database.")
+            return db
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during database initialization: {e}")
+            return None
+    if db_type == "target":
+        try:
+            db = DBAccess(os.getenv('DB_TARGET_HOST'), os.getenv('DB_TARGET_DATABASE'), os.getenv('DB_TARGET_USER'), os.getenv('DB_TARGET_PASSWORD'))
+            db.connect()
+            logger.info("Successfully connected to the database.")
+            return db
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during database initialization: {e}")
+            return None
 
-    # Get the names of collectors from the database
-    names_to_search = db.fetch_collectors() #returns a list of tuples
 
 
 
-    ########
-   # test_names_to_search = list(zip(*names_to_search))
-    test_names_to_search = names_to_search
-    columns = ['first_name', 'middle_name', 'last_name', 'title', 'agend_id']
+def clean_data():
+    return
 
-    spark = SparkSession.builder.appName("CollectorNamePreprocessing").getOrCreate()
-   # spark.sparkContext.setLogLevel("DEBUG")
-    test_df = spark.createDataFrame(test_names_to_search, schema=columns)
-    test_df.show()
-    #spark.stop()
+def filter_data(spark, df):
 
-    names_df, names_with_titles_df = filter_titles_pyspark(test_df)
-
-    # log
+    names_df, names_with_titles_df = filter_titles(df)
+    output_file_df(spark, "Filtered_FirstNameTitles", names_with_titles_df)
 
     names_df, multiple_names_df = filter_multiple_collectors(names_df)
-
-    #log
+    output_file_df(spark, "Filtered_CollectorTeams", multiple_names_df)
 
     names_df, organizations_df = filter_institutions(names_df)
+    output_file_df(spark, "Filtered_Institutions", organizations_df)
+    return names_df
 
-    #log
 
 
-
-    #end of data processing
-
-    #########
-
+def enrich_data(spark, names_df):
     spark.sparkContext.addPyFile('./resource_api.zip')
     import resource_api
-
     def search_wrapper(orcid_search = OrcidAPI()):
         def partition_search_function(names_df):
             return partition_search(orcid_search, names_df)
         return partition_search_function
 
-
-
     search_function = search_wrapper()
-
-    #   Output Names
-
     rdd = names_df.rdd.mapPartitions(search_function)
-    #orcid_search_results = rdd.collect()
-    #print("these are the results: ", orcid_search_results)
-    extracted_names_rdd = rdd.mapPartitions(test_process_search_name_iterator)
+    extracted_names_rdd = rdd.mapPartitions(process_search_name_iterator)
 
-    #   output current search results
-    print("these are the extracted names")
-    print(extracted_names_rdd.collect())
-
-    #   Fuzzy Matching
-
-    '''
-
-    for name in names_to_search:
-
-        first_name, middle_name, last_name = clean_name(name[:3])
-
-        first_name = first_name.replace("&", "and") #need to do this so punctuation doesnt drop it
-
-        cleaned_name = f"{first_name} {middle_name} {last_name}"
+    return extracted_names_rdd
 
 
-        new_first_name, new_middle_name, new_last_name = test_name_filtering(first_name, middle_name, last_name, name)
+def fuzzy_match(spark, names_rdd):
+    best_matches = names_rdd.mapPartitions(get_best_match_iterator)
 
-        if new_first_name and new_middle_name and new_last_name:
-            filtered_name = f"{new_first_name} {new_middle_name} {new_last_name}"
-            print("original_name: {name}, cleaned_name: {cleaned_name} filtered_name: {filtered_name}".format(name=name,
-                                                                                                              cleaned_name=cleaned_name,
-                                                                                                              filtered_name=filtered_name))
-        else:
-            print("original_name: {name}, cleaned_name: {cleaned_name}".format(name=name, cleaned_name=cleaned_name))
+    passed_rdd = best_matches.filter(lambda x: x['confidence_score'] is not None and  x['confidence_score'] > 95)
+    failed_rdd = best_matches.filter(lambda x: x['confidence_score'] is None or x['confidence_score'] < 95 )
 
-    print(len(names_to_search))
-    '''
+    output_file_rdd(spark, "failed", failed_rdd)
+    output_file_rdd(spark, "passed", passed_rdd)
 
-    '''
-    for name in names_to_search:
-
-        # Authenticate Orcid API using Credentials
-        orcid_api = OrcidAPI()
-        # alex_api = OpenAlexAPI()
-
-        redirect_uri = 'https://127.0.0.1/'
-        # Exchange the authorization code for an access token
-        code = os.getenv('ACCESS_TOKEN')
-        # access_token = orcid_api.exchange_code_for_token(code, redirect_uri)
-
-        orcid_matches = orcid_api.search_orcid(cleaned_name, code)
-
-        # Process the matches if there are any, and proceed only if the processed data is not empty
-        if orcid_matches and 'expanded-result' in orcid_matches and orcid_matches['expanded-result']:
-
-            processed_matches = process_search_name_data(orcid_matches, cleaned_name)
+    return passed_rdd
 
 
-            print("these were processed normally: ", processed_matches)
+
+def main():
+    #instantiate_error_log('dropped_agents.csv')
 
 
-            if processed_matches:  # Check if there are any processed matches to avoid creating an empty DataFrame
-                df = pd.DataFrame(processed_matches)
-                # df['full_name'] = df.apply(lambda x: f"{x['Given Names']} {x['Family Names']}".strip(), axis=1)
-                df['full_name'] = df.apply(lambda x: (f"{x['Given Names']} {x['Family Names']}").strip(' "\''), axis=1)
+    source_db = initialize_database('source')
+    names_to_search = source_db.fetch_collectors()
 
-                # Fuzzy match and confidence score calculation
-                df[['Best Match Column', 'Best Match Name', 'Confidence Score']] = df.apply(
-                    lambda x: get_best_match_and_confidence(x['CAS Botany Name'], x['full_name'], x['Credit Names'],
-                                                            x['Other Names']),
-                    axis=1, result_type='expand'
-                )
-                df.dropna(subset=['Best Match Column', 'Best Match Name', 'Confidence Score'], inplace=True)
+    spark = SparkSession.builder.appName("CollectorNamePreprocessing").getOrCreate()
+   # spark.sparkContext.setLogLevel("DEBUG")
 
-            else:
-                print("No valid processed matches found. Check data quality or parameters.")
-        else:
-            print("No results found from ORCID search or no valid data to process.")
+    df = spark.createDataFrame(names_to_search, schema=['first_name', 'middle_name', 'last_name', 'title', 'agend_id'])
 
-    # Save rows that will be dropped due to NaN values in specified columns
-    rows_to_drop = df[df[['Best Match Column', 'Best Match Name', 'Confidence Score']].isna().any(axis=1)]
+    processed_df = filter_data(spark, df) #preprocessing based on given headers to handle poorly formatted strings or rows that arent present
 
-    # Drop the NaN values from the original DataFrame
-    df.dropna(subset=['Best Match Column', 'Best Match Name', 'Confidence Score'], inplace=True)
+    extracted_names_rdd = enrich_data(spark, processed_df)
 
-    # Output the rows to be dropped
-    print("Rows dropped for not having a best match:")
-    print(rows_to_drop)
+    fuzzy_matched_collectors = fuzzy_match(spark, extracted_names_rdd)
 
-    # Output the cleaned DataFrame
-    print("\nCleaned DataFrame:")
-    print(df)
-    '''
+    if fuzzy_matched_collectors:
+        target_db = initialize_database('target')
+
+
+
+
+
+
+
 
 if __name__ == "__main__":
     main()

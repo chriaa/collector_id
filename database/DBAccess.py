@@ -7,14 +7,14 @@ load_dotenv()
 
 
 class DBAccess:
-    def __init__(self):
+    def __init__(self, host, database, user, password):
         """
         Initialize database connection details from environment variables.
         """
-        self.host = os.getenv('DB_HOST')
-        self.database = os.getenv('DB_DATABASE')
-        self.user = os.getenv('DB_USER')
-        self.password = os.getenv('DB_PASSWORD')
+        self.host = host
+        self.database = database
+        self.user = user
+        self.password = password
 
     def connect(self):
         """

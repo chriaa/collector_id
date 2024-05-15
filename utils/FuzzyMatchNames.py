@@ -18,11 +18,44 @@ class FuzzyMatchNames:
         top_three = process.extract(query_name, possible_matches, limit=3)
         return top_three
 
+
+def get_best_match_iterator(iterator):
+    results = []
+
+    for name in iterator:
+        # if its empty ignore it but also this shouldnt be a problem at this stage
+        if name:
+            key = next(iter(name))
+
+            for e in name[key]:
+
+                best_match_key, best_match_value, confidence_score = get_best_match_and_confidence(e['Searched Name'],
+                                                                                                   f"{e['Given Names']} {e['Family Names']}",
+                                                                                                   e['Credit Names'],
+                                                                                                         e['Other Names'])
+                # agent_id
+                cas_name = e['Searched Name']
+                # a record should still be generated regardless of whether the name clears the benchmark
+                # so that the record can be properly recorded as being searched but no records being found
+                result = {
+                    'cas_name': cas_name,
+                    'best_match_key': best_match_key,
+                    'best_match_value': best_match_value,
+                    'confidence_score': confidence_score
+                    }
+                # cas_agent_id = e['agent_id']
+                results.append(result) #probably should be a dictionar
+
+
+    return iter(results)
+
+
 def get_best_match_and_confidence(cas_name, full_name, credit_names, other_names):
     """
     Compares the CAS Botany Name against full_name, credit names, and other names,
     selects the best match, and calculates the confidence score.
     """
+
     # Prepare choices and include full_name by default
     choices = {'full_name': full_name}
 
@@ -42,12 +75,16 @@ def get_best_match_and_confidence(cas_name, full_name, credit_names, other_names
     best_match_value = choices[best_match_key]
     confidence_score = scores[best_match_key]
 
-    if confidence_score < 95:
+    if confidence_score < 70:
         return None, None, None
         # Return the column of the best match, the best matched name itself, and the confidence score
     return best_match_key, best_match_value, confidence_score
 
+
+
+
+
+
+
 if __name__ == "__main__":
     fuzzy_match = FuzzyMatchNames()
-
-

@@ -3,7 +3,7 @@ import requests
 from dotenv import load_dotenv
 import os
 
-from utils.CleanData import test_process_search_name_data
+from utils.CleanData import process_search_name_data
 
 # Accessing variables
 client_id = os.getenv('CLIENT_ID')
@@ -58,7 +58,6 @@ class OrcidAPI:
         }
         response = requests.post(token_url, headers=headers, data=data)
         if response.status_code == 200:
-            print(response.json()['access_token'])
             return response.json()['access_token']
         else:
             print(f"Error obtaining access token: {response.text}")
@@ -109,9 +108,6 @@ def partition_search(instance, names):
         search_results = instance.test_search_orcid(full_name)
         search_results['searched_name_row'] = name
         search_results['searched_name'] = full_name
-        #compiled_results = test_process_search_name_data(search_results)
-
-        #print("compiled results", compiled_results)
         results.append(search_results if search_results is not None else 0)
 
     return iter(results)
