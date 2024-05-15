@@ -1,3 +1,6 @@
 src/.env
 venv/
 .idea/
+database/__pycache__/
+resource_api/__pycache__/
+utils/__pycache__/
