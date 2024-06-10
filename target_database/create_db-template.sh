@@ -1,16 +1,15 @@
 #!/bin/bash
 
-docker container stop collector_id
-docker container rm collector_id
-
+docker container stop template_db
+docker container rm template_db
 
 # Variables
-MYSQL_CONTAINER_NAME="collector_id"
-MYSQL_ROOT_PASSWORD="bacillus"  # Set your desired root password
-MYSQL_DATABASE="collector_orcid_match"       # Set your desired database name
-MYSQL_USER="christina"        # Set your desired username
-MYSQL_PASSWORD="password123"  # Set your desired password for the new user
-MYSQL_PORT=3310               # Set your desired port for MySQL
+MYSQL_CONTAINER_NAME="template_db"
+MYSQL_ROOT_PASSWORD="strongrootpassword"  # Set your desired root password
+MYSQL_DATABASE="sample_database"          # Set your desired database name
+MYSQL_USER="sample_user"                  # Set your desired username
+MYSQL_PASSWORD="userpassword123"          # Set your desired password for the new user
+MYSQL_PORT=5433                           # Set your desired port for MySQL
 
 # Pull the latest MySQL image
 docker pull mysql:latest

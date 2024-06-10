@@ -23,11 +23,14 @@ def format_name(name):
     More information needed on any 'codes' that manual transcribers might be using for dealing with names
     '''
 
-
+'''
+    Iterator for batch processing search name data
+'''
 def process_search_name_iterator(iterator):
-    results = {}
 
+    results = ""
     for name in iterator:
+        results = {}
         extracted_data = process_search_name_data(name)
         if extracted_data:
             results.update(extracted_data)
@@ -38,12 +41,14 @@ def process_search_name_iterator(iterator):
 def process_search_name_data(data):
     results = {}
 
-    if 'expanded-result' in data:
+    if 'expanded-result' in data and data['expanded-result'] is not None:
         potential_match = data['expanded-result']
         searched_name = data['searched_name'].strip()
         # agentId should be added here along with the full name
 
         matches = []
+        #   For every possible match, extract relevant information and append as a record to possible matches for later fuzzymatching
+
         for item in potential_match:
             extracted_data = {
                 "Searched Name": searched_name,
@@ -56,7 +61,11 @@ def process_search_name_data(data):
             }
             matches.append(extracted_data)
 
-        results[searched_name] = matches
+
+        results['processed_potential_matches'] = matches
+        results['searched_name'] = searched_name
+        results['agent_id'] = data['agent_id']
+        #results[searched_name] = searched_name
     # else:
     #    results.append(None)
 
@@ -70,8 +79,7 @@ def filter_titles(df):
         "Lt", "Lieutenant", "Lady", "Mme", "Mlle", "Miss", "Mrs", "Ms", "Colonel", "Col"
     ]
     regex_pattern = "^(" + "|".join([f"{keyword.lower()}" for keyword in keywords]) + ")$"
-    df = remove_punctuation(
-        df)  # move outside to main, this could be a preprocessing step if it were made into a function(df, column(s) to clean)
+    df = remove_punctuation(df)  # move outside to main, this could be a preprocessing step if it were made into a function(df, column(s) to clean)
     filtered_titles = df.filter(~lower(col("first_name")).rlike(regex_pattern))
     dropped_titles = df.filter(lower(col("first_name")).rlike(regex_pattern))
 
@@ -114,6 +122,8 @@ def filter_institutions(df):
 def remove_punctuation(df):
     pattern = r"[^\w\s]"
     new_df = df.withColumn("first_name", regexp_replace("first_name", pattern, ""))
+    new_df = new_df.withColumn("middle_name", regexp_replace("middle_name", pattern, ""))
+
     return new_df
 
 

@@ -4,3 +4,4 @@ venv/
 database/__pycache__/
 resource_api/__pycache__/
 utils/__pycache__/
+target_database/create_db.sh

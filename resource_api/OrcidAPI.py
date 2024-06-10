@@ -98,7 +98,7 @@ class OrcidAPI:
 
 
 def partition_search(instance, names):
-    url = (f"https://pub.orcid.org/v3")
+    url = f"https://pub.orcid.org/v3"
     results = []
     for name in names:
         full_name = f"{name['first_name']} {name['last_name']}"
@@ -106,8 +106,10 @@ def partition_search(instance, names):
             full_name = f"{name['first_name']} {name['middle_name']} {name['last_name']}"
 
         search_results = instance.test_search_orcid(full_name)
-        search_results['searched_name_row'] = name
-        search_results['searched_name'] = full_name
-        results.append(search_results if search_results is not None else 0)
+        if search_results:
+            search_results['searched_name_row'] = name
+            search_results['searched_name'] = full_name
+            search_results['agent_id'] = name['agent_id']
+            results.append(search_results if search_results is not None else 0)
 
     return iter(results)

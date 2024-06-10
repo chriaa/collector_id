@@ -19,33 +19,39 @@ class FuzzyMatchNames:
         return top_three
 
 
+'''
+    PySpark MapPartitions Iterator that takes an individual record as input 
+
+'''
+
+
 def get_best_match_iterator(iterator):
     results = []
 
-    for name in iterator:
+    for record in iterator:
+        key = 'processed_potential_matches'
         # if its empty ignore it but also this shouldnt be a problem at this stage
-        if name:
-            key = next(iter(name))
-
-            for e in name[key]:
-
+        if record[key]:
+            potential_matches = record[key]
+            for e in potential_matches:
                 best_match_key, best_match_value, confidence_score = get_best_match_and_confidence(e['Searched Name'],
                                                                                                    f"{e['Given Names']} {e['Family Names']}",
                                                                                                    e['Credit Names'],
-                                                                                                         e['Other Names'])
+                                                                                                   e['Other Names'])
                 # agent_id
                 cas_name = e['Searched Name']
                 # a record should still be generated regardless of whether the name clears the benchmark
                 # so that the record can be properly recorded as being searched but no records being found
                 result = {
-                    'cas_name': cas_name,
-                    'best_match_key': best_match_key,
-                    'best_match_value': best_match_value,
-                    'confidence_score': confidence_score
-                    }
+                    'full_name': cas_name,
+                    'best_match_source_field': best_match_key,
+                    'target_name': best_match_value,
+                    'match_confidence': confidence_score,
+                    'agent_id': record['agent_id'],
+                    'orcid_id': e['ORCID ID']
+                }
                 # cas_agent_id = e['agent_id']
-                results.append(result) #probably should be a dictionar
-
+                results.append(result)  # probably should be a dictionar
 
     return iter(results)
 
@@ -75,15 +81,10 @@ def get_best_match_and_confidence(cas_name, full_name, credit_names, other_names
     best_match_value = choices[best_match_key]
     confidence_score = scores[best_match_key]
 
-    if confidence_score < 70:
+    if confidence_score < 50:
         return None, None, None
         # Return the column of the best match, the best matched name itself, and the confidence score
     return best_match_key, best_match_value, confidence_score
-
-
-
-
-
 
 
 if __name__ == "__main__":
