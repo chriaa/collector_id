@@ -5,8 +5,8 @@ import re
 import string
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, regexp_replace, lower, get_json_object, lit
-
+from pyspark.sql.functions import col, regexp_replace, lower, get_json_object, lit, length
+from pyspark.sql import DataFrame
 
 class CleanData:
     def __init__(self):
@@ -17,11 +17,6 @@ def format_name(name):
     """ Capitalize and clean individual name components. """
     return ' '.join(part.capitalize() for part in name.strip(' "\'').split())
 
-
-''' Note:
-
-    More information needed on any 'codes' that manual transcribers might be using for dealing with names
-    '''
 
 '''
     Iterator for batch processing search name data
@@ -47,8 +42,6 @@ def process_search_name_data(data):
         # agentId should be added here along with the full name
 
         matches = []
-        #   For every possible match, extract relevant information and append as a record to possible matches for later fuzzymatching
-
         for item in potential_match:
             extracted_data = {
                 "Searched Name": searched_name,
@@ -63,16 +56,19 @@ def process_search_name_data(data):
 
 
         results['processed_potential_matches'] = matches
-        results['searched_name'] = searched_name
-        results['agent_id'] = data['agent_id']
+        #results['searched_name'] = searched_name
+        #results['agent_id'] = data['agent_id']
+
         #results[searched_name] = searched_name
-    # else:
-    #    results.append(None)
+    else:
+        results['processed_potential_matches'] = [{'error_code': data.get('error_code', 'unknown_error')}]
+    results['searched_name'] = data.get('searched_name', '').strip()
+    results['agent_id'] = data.get('agent_id', '')
 
     return results
 
 
-def filter_titles(df):
+def filter_titles(df: DataFrame) -> (DataFrame, DataFrame):
     keywords = [
         'Dr', 'Father', "Reverend", "Capt", "Captain", "Prof", "Sir",
         "Mrs", "Lord", "General", "Consul", "Professor", "Sister",
@@ -88,7 +84,7 @@ def filter_titles(df):
     return filtered_titles, dropped_titles
 
 
-def filter_multiple_collectors(df):
+def filter_multiple_collectors(df: DataFrame) -> (DataFrame, DataFrame):
     separators = ['&', ' and ']
     regex_pattern = "^(" + "|".join([f"{sep}" for sep in separators]) + ")$"
     single_collectors = df.filter(~lower(col("first_name")).rlike(regex_pattern))
@@ -96,8 +92,13 @@ def filter_multiple_collectors(df):
 
     return single_collectors, dropped_collectors
 
+def filter_short_names(df: DataFrame) -> (DataFrame, DataFrame):
+    filtered_names = df.filter((length(col("first_name")) != 1) & (length(col("last_name")) != 1))
+    short_names = df.filter((length(col("last_name")) == 1) | (length(col("first_name")) == 1))
 
-def filter_institutions(df):
+    return filtered_names, short_names
+
+def filter_institutions(df: DataFrame) -> (DataFrame, DataFrame):
     keywords = [
         'university',
         'institute',
@@ -114,6 +115,14 @@ def filter_institutions(df):
     return filtered_institutions, dropped_institutions
 
 
+# Filter first and last names with a length of 1
+def filter_short_names(df: DataFrame) -> (DataFrame, DataFrame):
+
+    filtered_names = df.filter((length(col("first_name")) != 1) & (length(col("last_name")) != 1))
+    short_names = df.filter((length(col("last_name")) == 1) | (length(col("first_name")) == 1))
+
+    return filtered_names, short_names
+
 '''
     Error Logging Functions
 '''
@@ -123,6 +132,7 @@ def remove_punctuation(df):
     pattern = r"[^\w\s]"
     new_df = df.withColumn("first_name", regexp_replace("first_name", pattern, ""))
     new_df = new_df.withColumn("middle_name", regexp_replace("middle_name", pattern, ""))
+    new_df = new_df.withColumn("last_name", regexp_replace("last_name", pattern, ""))
 
     return new_df
 

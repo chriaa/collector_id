@@ -29,9 +29,10 @@ def get_best_match_iterator(iterator):
     results = []
 
     for record in iterator:
+
         key = 'processed_potential_matches'
-        # if its empty ignore it but also this shouldnt be a problem at this stage
-        if record[key]:
+
+        if isinstance(record, dict) and key in record:
             potential_matches = record[key]
             for e in potential_matches:
                 best_match_key, best_match_value, confidence_score = get_best_match_and_confidence(e['Searched Name'],

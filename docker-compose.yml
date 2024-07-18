@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: app_container
+    working_dir: /app/src
+    environment:
+      - CLIENT_ID=${CLIENT_ID}
+      - CLIENT_SECRET=${CLIENT_SECRET}
+      - ACCESS_TOKEN=${ACCESS_TOKEN}
+      - DB_HOST=${DB_HOST}
+      - DB_DATABASE=${DB_DATABASE}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST_PORT=${DB_HOST_PORT}
+      - DB_TARGET_HOST=${DB_TARGET_HOST}
+      - DB_TARGET_DATABASE=${DB_TARGET_DATABASE}
+      - DB_TARGET_USER=${DB_TARGET_USER}
+      - DB_TARGET_PASSWORD=${DB_TARGET_PASSWORD}
+      - DB_TARGET_PORT=${DB_TARGET_PORT}
+    env_file:
+      - ./src/.env
+    volumes:
+      - .:/app
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:5.7
+    container_name: mysql_container
+    platform: linux/amd64
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+volumes:
+  mysql-data:

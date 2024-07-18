@@ -11,8 +11,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from resource_api.OrcidAPI import OrcidAPI, partition_search
 from resource_api.OpenAlexAPI import OpenAlexAPI
-from database.DBAccess import DBAccess, insert_collector_record
-from utils.CleanData import (CleanData, process_search_name_data, instantiate_error_log, filter_titles, filter_multiple_collectors, filter_institutions, process_search_name_iterator)
+from database.DBAccess import DBAccess, insert_collector_record, insert_collector_record_csv
+from utils.CleanData import (CleanData, process_search_name_data, instantiate_error_log, filter_titles, filter_short_names, filter_multiple_collectors, filter_institutions, process_search_name_iterator)
 from utils.FuzzyMatchNames import FuzzyMatchNames, get_best_match_and_confidence, get_best_match_iterator
 from dotenv import load_dotenv
 
@@ -29,8 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 date_time = datetime.datetime.now()
-
-#fix these two
+OUTPUT_DIR = f"./outputs/{date_time.strftime("%m-%d_%H:%M")}"
 
 '''
     Output csv files of current df/rdd
@@ -40,22 +39,39 @@ def output_file_rdd(spark, file_name, rdd):
 
     if not rdd.isEmpty():
         df = spark.createDataFrame(rdd)
-        #df.write.csv(path = f"./{file_name}.csv", mode = 'overwrite', header= True)
-        formatted_date_time = date_time.strftime("%m-%d_%H:%M")
-        output_dir = f"./outputs/{formatted_date_time}"
-        os.makedirs(output_dir, exist_ok=True)
+
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         pandas_df = df.toPandas()
-        pandas_df.to_csv(f"{output_dir}/{file_name}.csv", index=False)
+
+        file_path = f"{OUTPUT_DIR}/{file_name}.csv"
+
+        if os.path.exists(file_path):
+            pandas_df.to_csv(file_path, mode='a', header=False, index=False)
+        else:
+            pandas_df.to_csv(file_path, mode='w', header=True, index=False)
+
+
+        '''
+        #df.write.csv(path = f"./{file_name}.csv", mode = 'overwrite', header= True)
+
+        #formatted_date_time = date_time.strftime("%m-%d_%H:%M")
+        #output_dir = f"./outputs/{formatted_date_time}"
+
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        pandas_df = df.toPandas()
+        pandas_df.to_csv(f"{OUTPUT_DIR}/{file_name}.csv", index=False)
         #df.coalesce(1).write.csv(path=f"./tests/data/test_search_data.csv", mode='overwrite', header=True)
-
+        '''
 def output_file_df(spark, file_name, df):
-
-    formatted_date_time = date_time.strftime("%m-%d_%H:%M")
-    output_dir = f"./outputs/{formatted_date_time}"
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     pandas_df = df.toPandas()
-    pandas_df.to_csv(f"{output_dir}/{file_name}.csv", index=False)
 
+    file_path = f"{OUTPUT_DIR}/{file_name}.csv"
+
+    if os.path.exists(file_path):
+        pandas_df.to_csv(file_path, mode='a', header=False, index=False)
+    else:
+        pandas_df.to_csv(file_path, mode='w', header=True, index=False)
 
 
 
@@ -91,16 +107,19 @@ def initialize_database(db_type):
 def clean_and_filter_data(spark, df):
 
     names_df, names_with_titles_df = filter_titles(df)
-    output_file_df(spark, "Filtered_FirstNameTitles", names_with_titles_df)
+    output_file_df(spark, "Failed_Filtered_FirstNameTitles", names_with_titles_df)
     #names_with_titles_df.show()
 
     names_df, multiple_names_df = filter_multiple_collectors(names_df)
-    output_file_df(spark, "Filtered_CollectorTeams", multiple_names_df)
+    output_file_df(spark, "Failed_Filtered_CollectorTeams", multiple_names_df)
     # multiple_names_df.show()
 
     names_df, organizations_df = filter_institutions(names_df)
-    output_file_df(spark, "Filtered_Institutions", organizations_df)
+    output_file_df(spark, "Failed_Filtered_Institutions", organizations_df)
     #organizations_df.show()
+
+    names_df, shorter_names_df = filter_short_names(names_df)
+    output_file_df(spark, "Failed_Filtered_Short_Names", shorter_names_df)
 
     return names_df
 
@@ -133,8 +152,26 @@ def fuzzy_match(spark, names_rdd):
     passed_rdd = best_matches.filter(lambda x: x['match_confidence'] is not None and x['match_confidence'] >= 70)
     failed_rdd = best_matches.filter(lambda x: x['match_confidence'] is None or x['match_confidence'] < 70 )
 
+
+    if not passed_rdd.isEmpty():
+        passed_df = spark.createDataFrame(passed_rdd)
+        print("Here are the searched names that passed")
+        passed_df.show()
+
+    else:
+        print("No records passed the fuzzy match filter.")
+
+    if not failed_rdd.isEmpty():
+        failed_df = spark.createDataFrame(failed_rdd)
+        print("Here are the failures from fuzzy match")
+        failed_df.show()
+    else:
+        print("No records failed the fuzzy match filter.")
+
+    return passed_rdd
+    '''
     failed_df = spark.createDataFrame(failed_rdd)
-    print("Here are the failures")
+    print("Here are the failures from fuzzy match")
     failed_df.show()
 
     passed_df = spark.createDataFrame(passed_rdd)
@@ -146,93 +183,106 @@ def fuzzy_match(spark, names_rdd):
     output_file_rdd(spark, "passed_fuzzymatch", passed_rdd)
 
     return passed_rdd
+    '''
 
 
 
 def main():
     #instantiate_error_log('dropped_agents.csv')
+    formatted_date_time = date_time.strftime("%m-%d_%H:%M")
+    global OUTPUT_DIR
+    OUTPUT_DIR = f"./outputs/{formatted_date_time}"
+
 
     #   Initialize connection to source database (uncomment when not testing)
     source_db = initialize_database('source')
 
-    #   Fetch collectors (uncomment when not testing)
-    names_to_search = source_db.fetch_collectors()
+    # (old)  Fetch collectors (uncomment when not testing)
+    #names_to_search = source_db.fetch_collectors()
+    offset = 0
 
     # Instantiate spark application
     spark = SparkSession.builder.appName("CollectorNamePreprocessing").config("spark.sql.debug.maxToStringFields", 100) \
-    .getOrCreate()
-   #spark.sparkContext.setLogLevel("DEBUG")
-    df = spark.createDataFrame(names_to_search, schema=['first_name', 'middle_name', 'last_name', 'title', 'agent_id'])
+        .getOrCreate()
+
+    while True:
+        print("Processing offset " + str(offset))
+        names_to_search = source_db.fetch_collectors_batch(batch_size = 1000, offset = offset)
+        if not names_to_search:
+            break
+       #spark.sparkContext.setLogLevel("DEBUG")
+        df = spark.createDataFrame(names_to_search, schema=['first_name', 'middle_name', 'last_name', 'title', 'agent_id'])
 
 
-    #   Cleaning name data and preprocessing to filter organizations, multiple names, etc, (uncomment when not testing)
-    processed_df = clean_and_filter_data(spark, df)
+        #   Cleaning name data and preprocessing to filter organizations, multiple names, etc, (uncomment when not testing)
+        processed_df = clean_and_filter_data(spark, df)
 
-    '''
-        For testing purposes (processed_data):
-    '''
-    '''
-    processed_df.write.mode("overwrite").parquet("./tests/data/processed_name_dataframe_45")
-    read_processed_df = spark.read.parquet("./tests/data/processed_name_dataframe_45")
-    print("Here are the processed results")
-    read_processed_df.show()
-    processed_df = read_processed_df
-    '''
-
-
-
-
-    #   Enrich data with search results from ORCID
-    names_rdd = enrich_data(spark, processed_df)
-
-    '''
-        For testing purposes: (enriched_data)
-        An rdd must be converted into a df into order to be written into a parquet file
-    '''
-    '''
-    names_rdd = names_rdd.collect()
-    names_df = spark.createDataFrame(names_rdd)
-    names_df.write.mode("overwrite").parquet("./tests/data/enriched_name_dataframe_45")
-    names_df = spark.read.parquet("./tests/data/enriched_name_dataframe_45")
-    print("Here are the search results")
-    names_df.show(3)
-    extracted_names_rdd = names_df.rdd
-    '''
+        '''
+            For testing purposes (processed_data):
+        '''
+        '''
+        processed_df.write.mode("overwrite").parquet("./tests/data/processed_name_dataframe_45")
+        read_processed_df = spark.read.parquet("./tests/data/processed_name_dataframe_45")
+        print("Here are the processed results")
+        read_processed_df.show()
+        processed_df = read_processed_df
+        '''
 
 
 
 
-    #   Fuzzy matching ORCID searched names and comparing
-    fuzzy_matched_collectors_rdd = fuzzy_match(spark, extracted_names_rdd)
+        #   Enrich data with search results from ORCID
+        names_rdd = enrich_data(spark, processed_df)
 
-    '''
-        For testing purposes: (fuzzy_match_collectors)
-    '''
-    '''
-    try:
-        #fuzzy_matched_collectors_rdd = fuzzy_matched_collectors_rdd.collect()
-        fuzzy_match_df = spark.createDataFrame(fuzzy_matched_collectors_rdd)
-        #fuzzy_match_df.write.mode("overwrite").parquet("./tests/data/matched_name_dataframe_45")
-        fuzzy_match_df = spark.read.parquet("./tests/data/matched_name_dataframe_45")
-        print("Here are the fuzzy matched results")
-        fuzzy_match_df.show()
-        fuzzy_matched_collectors_rdd = fuzzy_match_df.rdd
-    except Exception as e:
-        print("An error occurred")
-    '''
+        '''
+            For testing purposes: (enriched_data)
+            An rdd must be converted into a df into order to be written into a parquet file
+        '''
+        '''
+        names_rdd = names_rdd.collect()
+        names_df = spark.createDataFrame(names_rdd)
+        names_df.write.mode("overwrite").parquet("./tests/data/enriched_name_dataframe_45")
+        names_df = spark.read.parquet("./tests/data/enriched_name_dataframe_45")
+        print("Here are the search results")
+        names_df.show(3)
+        names_rdd = names_df.rdd
+        '''
 
 
 
 
-    #   Connect to existing database
-    target_db = initialize_database('target')
-    target_db.initialize_target_database() #    Name this better
+        #   Fuzzy matching ORCID searched names and comparing
+        fuzzy_matched_collectors_rdd = fuzzy_match(spark, names_rdd)
 
-    #fuzzy_matched_collectors_rdd.mapPartitions(target_db.insert_collector_records).count()
+        '''
+            For testing purposes: (fuzzy_match_collectors)
+        '''
+        '''
+        try:
+            #fuzzy_matched_collectors_rdd = fuzzy_matched_collectors_rdd.collect()
+            fuzzy_match_df = spark.createDataFrame(fuzzy_matched_collectors_rdd)
+            #fuzzy_match_df.write.mode("overwrite").parquet("./tests/data/matched_name_dataframe_45")
+            fuzzy_match_df = spark.read.parquet("./tests/data/matched_name_dataframe_45")
+            print("Here are the fuzzy matched results")
+            fuzzy_match_df.show()
+            fuzzy_matched_collectors_rdd = fuzzy_match_df.rdd
+        except Exception as e:
+            print("An error occurred")
+        '''
 
-    #   Insert match results for downstream analysis
-    fuzzy_matched_collectors_rdd.foreach(lambda x: insert_collector_record(x))
 
+
+
+        #   Connect to existing database
+        #target_db = initialize_database('target')
+        #target_db.initialize_target_database() #    Name this better
+
+        #fuzzy_matched_collectors_rdd.mapPartitions(target_db.insert_collector_records).count()
+
+        #   Insert match results for downstream analysis
+        fuzzy_matched_collectors_rdd.foreach(lambda x: insert_collector_record_csv(x, f'{OUTPUT_DIR}/matched.csv'))
+
+        offset += 1000
 
 
 

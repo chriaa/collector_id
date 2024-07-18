@@ -1,4 +1,6 @@
 import csv
+import time
+
 import requests
 from dotenv import load_dotenv
 import os
@@ -92,12 +94,15 @@ class OrcidAPI:
             return response.json()
         except requests.exceptions.HTTPError as err:
             print(f"HTTP error occurred: {err} - {response.text}")
+            return response.status_code
         except Exception as err:
             print(f"Other error occurred: {err}")
-        return None
+            return None
+        finally:
+            time.sleep(1 / 24)
 
 
-def partition_search(instance, names):
+def old_partition_search(instance, names):
     url = f"https://pub.orcid.org/v3"
     results = []
     for name in names:
@@ -111,5 +116,37 @@ def partition_search(instance, names):
             search_results['searched_name'] = full_name
             search_results['agent_id'] = name['agent_id']
             results.append(search_results if search_results is not None else 0)
+
+    return iter(results)
+
+
+def partition_search(instance, names):
+    results = []
+    for name in names:
+        full_name = f"{name['first_name']} {name['last_name']}"
+        if name['middle_name'] and len(name['middle_name']) > 0:
+            full_name = f"{name['first_name']} {name['middle_name']} {name['last_name']}"
+
+        search_results = instance.test_search_orcid(full_name)
+        if search_results is not None:
+            if isinstance(search_results, dict):  # Successful API response
+                search_results['searched_name_row'] = name
+                search_results['searched_name'] = full_name
+                search_results['agent_id'] = name['agent_id']
+                results.append(search_results)
+            else:  # API call returned an error code
+                results.append({
+                    'searched_name_row': name,
+                    'searched_name': full_name,
+                    'agent_id': name['agent_id'],
+                    'error_code': search_results
+                })
+        else:
+            results.append({
+                'searched_name_row': name,
+                'searched_name': full_name,
+                'agent_id': name['agent_id'],
+                'error_code': 'unknown_error'
+            })
 
     return iter(results)
