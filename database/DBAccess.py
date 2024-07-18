@@ -1,3 +1,5 @@
+import csv
+
 import mysql.connector
 from mysql.connector import Error
 from dotenv import load_dotenv
@@ -36,6 +38,51 @@ class DBAccess:
             print(f"Error, connecting to MySQL database: {e}")
             self.connection = None
 
+    def fetch_collectors_batch(self, batch_size=1000, offset=0):
+
+        if not self.connection:
+            print("Not connected to database.")
+            return []
+
+        query = f"""
+        SELECT
+            a.FirstName as FirstName,
+            a.MiddleInitial as MiddleInitial,
+            a.LastName as LastName,
+            a.Title,
+            a.AgentID
+        FROM
+            casbotany.agent a
+        LEFT JOIN
+            casbotany.collector col ON a.AgentID = col.AgentID
+        WHERE
+            a.FirstName IS NOT NULL 
+            AND TRIM(a.FirstName) <> ''
+            AND a.FirstName NOT REGEXP '[0-9]'
+            AND a.LastName NOT REGEXP '[0-9]'
+            AND a.FirstName NOT IN ('Dr', 'Father', 'Reverend', 'Capt', 'Captain', 'Prof', 'Sir',
+                'Mrs', 'Lord', 'General', 'Consul', 'Professor', 'Sister',
+                'Lt', 'Lieutenant', 'Lady', 'Mme', 'Mlle', 'Miss', 'Mrs', 'Ms', 'Colonel', 'Col')
+        GROUP BY
+            a.FirstName,
+            a.MiddleInitial,
+            a.LastName,
+            a.Title,
+            a.AgentID
+        LIMIT {batch_size} OFFSET {offset};
+        """
+
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(query)
+            records = cursor.fetchall()
+            return records
+        except Error as e:
+            print(f"Failed to fetch collectors: {e}")
+            return []
+        finally:
+            cursor.close()
+
     def fetch_collectors(self):
         """
         Fetch collectors' names from the database.
@@ -43,8 +90,33 @@ class DBAccess:
         if not self.connection:
             print("Not connected to database.")
             return []
-
         query = """
+        SELECT
+    a.FirstName as FirstName,
+    a.MiddleInitial as MiddleInitial,
+    a.LastName as LastName,
+    a.Title,
+    a.AgentID
+FROM
+    casbotany.agent a
+LEFT JOIN
+    casbotany.collector col ON a.AgentID = col.AgentID
+WHERE
+    a.FirstName IS NOT NULL 
+    AND TRIM(a.FirstName) <> ''
+    AND a.FirstName NOT REGEXP '[0-9]'
+    AND a.LastName NOT REGEXP '[0-9]'
+    AND a.FirstName NOT IN ('Dr', 'Father', 'Reverend', 'Capt', 'Captain', 'Prof', 'Sir',
+        'Mrs', 'Lord', 'General', 'Consul', 'Professor', 'Sister',
+        'Lt', 'Lieutenant', 'Lady', 'Mme', 'Mlle', 'Miss', 'Mrs', 'Ms', 'Colonel', 'Col')
+GROUP BY
+    a.FirstName,
+    a.MiddleInitial,
+    a.LastName,
+    a.Title,
+    a.AgentID;
+        """
+        query_old = """
              SELECT
                 #CONCAT(a.FirstName, ' ', COALESCE(a.MiddleInitial, ''), ' ', a.LastName) AS FullName,
                 a.FirstName as FirstName,
@@ -64,7 +136,7 @@ class DBAccess:
                 a.LastName,
                 a.Title,
                 a.AgentID
-            LIMIT 100;
+            LIMIT 1000;
         """
         cursor = self.connection.cursor()
         try:
@@ -116,7 +188,31 @@ class DBAccess:
             cursor.close()
             self.connection.close()
 
+
+def insert_collector_record_csv(record, csv_file_path):
+    fieldnames = ["agent_id", "full_name", "target_name", "best_match_source_field", "orcid_id", "match_confidence"]
+    file_exists = os.path.isfile(csv_file_path)
+
+    try:
+        with open(csv_file_path, mode='a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()  # Write header only if the file does not already exist
+            writer.writerow({
+                "agent_id": record["agent_id"],
+                "full_name": record["full_name"],
+                "target_name": record["target_name"],
+                "best_match_source_field": record["best_match_source_field"],
+                "orcid_id": record["orcid_id"],
+                "match_confidence": record["match_confidence"]
+            })
+    except Exception as e:
+        print(f"Error while writing to CSV: {e}")
+
+
 def insert_collector_record(record):
+    conn = None
+    cursor = None
     try:
         # Establish a new connection for each record
         conn = mysql.connector.connect(
@@ -127,7 +223,12 @@ def insert_collector_record(record):
             port=os.getenv("DB_TARGET_PORT")
         )
         cursor = conn.cursor()
-        agent_id, best_match_source_field, full_name, match_confidence, orcid_id, target_name = record
+        agent_id = record["agent_id"]
+        best_match_source_field = record["best_match_source_field"]
+        full_name = record["full_name"]
+        match_confidence = record["match_confidence"]
+        orcid_id = record["orcid_id"]
+        target_name = record["target_name"]
         cursor.execute("""
             INSERT INTO collectors (agent_id, full_name, target_name, best_match_source_field, orcid_id, match_confidence)
             VALUES (%s, %s, %s, %s, %s, %s)
